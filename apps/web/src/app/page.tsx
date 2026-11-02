@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { gqlFetch, getGraphqlUrl } from "@/lib/graphql";
 
 // Always render on request so the page reflects the current DB contents.
@@ -84,7 +85,7 @@ export default async function Home() {
   const result = await loadHome();
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-16">
+    <main className="mx-auto flex w-full min-w-0 max-w-3xl flex-1 flex-col gap-8 px-6 py-16">
       <header className="flex flex-col gap-2">
         <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">
           Code Reviews
@@ -160,9 +161,14 @@ export default async function Home() {
                 </tbody>
               </table>
 
-              <p className="mt-4 text-xs text-zinc-500">
-                {result.data.dataSummary.regions.length} regions ·{" "}
-                {result.data.dataSummary.incomeLevels.length} income levels
+              <p className="mt-4 flex items-center justify-between text-xs text-zinc-500">
+                <span>
+                  {result.data.dataSummary.regions.length} regions ·{" "}
+                  {result.data.dataSummary.incomeLevels.length} income levels
+                </span>
+                <Link href="/dashboard" className="font-medium underline underline-offset-4">
+                  Open the dashboard →
+                </Link>
               </p>
             </>
           )}
