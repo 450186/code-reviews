@@ -1,0 +1,32 @@
+{
+  "name": "@code-reviews/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset --force"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "graphql": "^16.14.2",
+    "graphql-yoga": "^5.24.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "prisma": "6.19.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

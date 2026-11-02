@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+.next/
+out/
+
+# env
+.env
+.env.*
+!.env.example
+
+# sqlite
+*.db
+*.db-journal
+*.sqlite
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+*.tsbuildinfo
+.turbo/
+coverage/
