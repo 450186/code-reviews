@@ -4,7 +4,7 @@ A small full-stack TypeScript application used for the **Application Support Eng
 
 | Layer    | Tech                                              | Where              |
 |----------|---------------------------------------------------|--------------------|
-| Frontend | [Next.js](https://nextjs.org/) 16 (App Router), React 19, Tailwind 4 | `apps/web` |
+| Frontend | [Next.js](https://nextjs.org/) 16 (App Router), React 19, Tailwind 4, [Recharts](https://recharts.org/) | `apps/web` |
 | API      | [GraphQL Yoga](https://the-guild.dev/graphql/yoga-server) on Node.js | `apps/api` |
 | Database | SQLite via [Prisma](https://www.prisma.io/) ORM   | `apps/api/prisma`  |
 | Data     | [World Bank Indicators API](https://datahelpdesk.worldbank.org/knowledgebase/articles/889392) (no key needed) | `apps/api/src/ingest` |
@@ -25,7 +25,7 @@ Pick one:
 docker compose up --build
 ```
 
-- Web app: http://localhost:3000
+- Web app: http://localhost:3000 (dashboard at http://localhost:3000/dashboard)
 - GraphQL API + GraphiQL playground: http://localhost:4000/graphql
 - API health check: http://localhost:4000/health
 
@@ -88,8 +88,15 @@ Workspace-specific scripts can be run with `npm run <script> -w apps/api` or `-w
 │   │           └── worldbank.ts  # Pulls countries + indicators from the World Bank API
 │   └── web/                 # Next.js frontend
 │       └── src/
-│           ├── app/page.tsx # Hello world page, queries the API
-│           └── lib/graphql.ts
+│           ├── app/page.tsx            # Home: dataset summary
+│           ├── app/dashboard/page.tsx  # Dashboard (server component, state in the URL)
+│           ├── components/charts/      # Recharts widgets + table fallbacks
+│           ├── components/dashboard/   # Controls (client) and ranking table
+│           └── lib/
+│               ├── graphql.ts          # fetch helper
+│               ├── dashboard.ts        # queries, types, URL param parsing
+│               ├── chart-theme.ts      # colour tokens (light/dark)
+│               └── format.ts           # number formatting per indicator
 ├── docker/api-entrypoint.sh # migrate + seed, then start API
 ├── Dockerfile               # targets: api, web
 ├── docker-compose.yml
@@ -120,6 +127,24 @@ Indicators ingested (edit `INDICATOR_CODES` in `apps/api/src/ingest/worldbank.ts
 
 Run `npm run db:studio` to browse the tables in Prisma Studio.
 
+## The dashboard
+
+http://localhost:3000/dashboard shows five widgets over the dataset. All state lives in the URL
+query string (`indicator`, `year`, `countries`, `order`, `region`), so any view is shareable
+and the server component re-renders on every change.
+
+| Widget | Query it uses | Notes |
+|--------|---------------|-------|
+| Headline tiles | `dashboardSummary` | World population (sum), mean life expectancy, country count, latest year |
+| Indicator over time (line) | `observations` | Up to 8 countries; colour slot follows list order |
+| Top / bottom 10 (table) | `ranking` | Order toggle, year selector |
+| Regional comparison (bars) | `regionAverages` | Unweighted mean per World Bank region |
+| GDP vs life expectancy (scatter) | `countrySnapshot` | Log-scale x axis; "Highlight region" dims the rest |
+
+Every chart has a "View as table" fallback. The **year** selector defaults to the indicator's
+`latestYear` (most recent year with at least 100 countries reporting). The scatter uses the latest
+year where *both* of its indicators are available, which may be earlier than the selected year.
+
 ## GraphQL API
 
 Explore interactively in GraphiQL at http://localhost:4000/graphql. The main queries:
@@ -133,6 +158,9 @@ type Query {
   indicator(code: String!): Indicator
   observations(indicatorCode: String!, countryCodes: [String!], fromYear: Int, toYear: Int): [Observation!]!
   ranking(indicatorCode: String!, year: Int!, limit: Int = 10, order: SortOrder = DESC): [Observation!]!
+  dashboardSummary: DashboardSummary!                        # headline figures
+  regionAverages(indicatorCode: String!, year: Int!): [RegionAverage!]!
+  countrySnapshot(indicatorCodes: [String!]!, year: Int!): [CountrySnapshot!]!
   hello: String!
   greetings: [Greeting!]!
 }

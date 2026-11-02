@@ -38,6 +38,8 @@ export const typeDefs = /* GraphQL */ `
     observationCount: Int!
     "Earliest and latest year with data."
     yearRange: YearRange
+    "Most recent year with data for at least 100 countries. Use this as a sensible default year."
+    latestYear: Int
   }
 
   type YearRange {
@@ -64,6 +66,40 @@ export const typeDefs = /* GraphQL */ `
     regions: [String!]!
     incomeLevels: [String!]!
     lastIngestedAt: String
+  }
+
+  "Headline figures for the dashboard."
+  type DashboardSummary {
+    "Sum of the latest population figures across all countries."
+    worldPopulation: Float!
+    worldPopulationYear: Int!
+    "Simple (unweighted) mean of life expectancy across countries."
+    avgLifeExpectancy: Float!
+    avgLifeExpectancyYear: Int!
+    countries: Int!
+    "Latest year present anywhere in the dataset."
+    latestYear: Int!
+  }
+
+  "Unweighted mean of an indicator across the countries in a region."
+  type RegionAverage {
+    region: String!
+    regionCode: String!
+    average: Float!
+    "Number of countries in the region that had a value for the year."
+    countryCount: Int!
+  }
+
+  type SnapshotValue {
+    indicatorCode: String!
+    value: Float!
+  }
+
+  "Several indicator values for one country in one year."
+  type CountrySnapshot {
+    country: Country!
+    "Only indicators that have a value for the year are present."
+    values: [SnapshotValue!]!
   }
 
   enum SortOrder {
@@ -108,6 +144,18 @@ export const typeDefs = /* GraphQL */ `
     Top (or bottom) countries for an indicator in a given year.
     """
     ranking(indicatorCode: String!, year: Int!, limit: Int = 10, order: SortOrder = DESC): [Observation!]!
+
+    "Headline figures for the dashboard."
+    dashboardSummary: DashboardSummary!
+
+    "Unweighted mean of an indicator per World Bank region for a year, sorted by average descending."
+    regionAverages(indicatorCode: String!, year: Int!): [RegionAverage!]!
+
+    """
+    For every country, the values of the requested indicators in a year.
+    Countries with no value for any of the indicators are omitted.
+    """
+    countrySnapshot(indicatorCodes: [String!]!, year: Int!): [CountrySnapshot!]!
   }
 
   type Mutation {
@@ -125,6 +173,20 @@ function yearFilter({ fromYear, toYear }: YearArgs): Prisma.IntFilter | undefine
     ...(toYear != null ? { lte: toYear } : {}),
   };
 }
+
+/** Latest year in which an indicator has values for at least `minCountries` countries. */
+async function latestYearWithCoverage(indicatorCode: string, minCountries = 100): Promise<number | null> {
+  const rows = await prisma.observation.groupBy({
+    by: ["year"],
+    where: { indicatorCode },
+    _count: { _all: true },
+    orderBy: { year: "desc" },
+  });
+  return rows.find((r) => r._count._all >= minCountries)?.year ?? null;
+}
+
+const POPULATION = "SP.POP.TOTL";
+const LIFE_EXPECTANCY = "SP.DYN.LE00.IN";
 
 export const resolvers = {
   Query: {
@@ -200,6 +262,68 @@ export const resolvers = {
         take: limit,
       });
     },
+
+    dashboardSummary: async () => {
+      const [popYear, leYear, countries, latest] = await Promise.all([
+        latestYearWithCoverage(POPULATION),
+        latestYearWithCoverage(LIFE_EXPECTANCY),
+        prisma.country.count(),
+        prisma.observation.aggregate({ _max: { year: true } }),
+      ]);
+      const [pop, le] = await Promise.all([
+        popYear == null
+          ? null
+          : prisma.observation.aggregate({ where: { indicatorCode: POPULATION, year: popYear }, _sum: { value: true } }),
+        leYear == null
+          ? null
+          : prisma.observation.aggregate({ where: { indicatorCode: LIFE_EXPECTANCY, year: leYear }, _avg: { value: true } }),
+      ]);
+      return {
+        worldPopulation: pop?._sum.value ?? 0,
+        worldPopulationYear: popYear ?? 0,
+        avgLifeExpectancy: le?._avg.value ?? 0,
+        avgLifeExpectancyYear: leYear ?? 0,
+        countries,
+        latestYear: latest._max.year ?? 0,
+      };
+    },
+
+    regionAverages: async (_p: unknown, args: { indicatorCode: string; year: number }) => {
+      const rows = await prisma.observation.findMany({
+        where: { indicatorCode: args.indicatorCode, year: args.year },
+        select: { value: true, country: { select: { region: true, regionCode: true } } },
+      });
+      const buckets = new Map<string, { region: string; regionCode: string; sum: number; count: number }>();
+      for (const row of rows) {
+        const b = buckets.get(row.country.regionCode) ?? {
+          region: row.country.region,
+          regionCode: row.country.regionCode,
+          sum: 0,
+          count: 0,
+        };
+        b.sum += row.value;
+        b.count += 1;
+        buckets.set(row.country.regionCode, b);
+      }
+      return [...buckets.values()]
+        .map((b) => ({ region: b.region, regionCode: b.regionCode, average: b.sum / b.count, countryCount: b.count }))
+        .sort((a, b) => b.average - a.average);
+    },
+
+    countrySnapshot: async (_p: unknown, args: { indicatorCodes: string[]; year: number }) => {
+      const rows = await prisma.observation.findMany({
+        where: { indicatorCode: { in: args.indicatorCodes }, year: args.year },
+        include: { country: true },
+        orderBy: { countryCode: "asc" },
+      });
+      const byCountry = new Map<string, { country: (typeof rows)[number]["country"]; values: { indicatorCode: string; value: number }[] }>();
+      for (const row of rows) {
+        const entry = byCountry.get(row.countryCode) ?? { country: row.country, values: [] };
+        entry.values.push({ indicatorCode: row.indicatorCode, value: row.value });
+        byCountry.set(row.countryCode, entry);
+      }
+      return [...byCountry.values()];
+    },
   },
 
   Mutation: {
@@ -232,6 +356,7 @@ export const resolvers = {
     lastFetchedAt: (parent: { lastFetchedAt: Date | null }) => parent.lastFetchedAt?.toISOString() ?? null,
     observationCount: (parent: { code: string }) =>
       prisma.observation.count({ where: { indicatorCode: parent.code } }),
+    latestYear: (parent: { code: string }) => latestYearWithCoverage(parent.code),
     yearRange: async (parent: { code: string }) => {
       const agg = await prisma.observation.aggregate({
         where: { indicatorCode: parent.code },
