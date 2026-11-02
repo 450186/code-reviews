@@ -16,3 +16,51 @@ model Greeting {
   message   String
   createdAt DateTime @default(now())
 }
+
+/// A country as described by the World Bank API (aggregates such as "World" are excluded).
+model Country {
+  /// ISO 3166-1 alpha-3 code, e.g. "GBR"
+  code            String  @id
+  /// ISO 3166-1 alpha-2 code, e.g. "GB"
+  iso2Code        String  @unique
+  name            String
+  /// World Bank region name, e.g. "Europe & Central Asia"
+  region          String
+  regionCode      String
+  /// World Bank income classification, e.g. "High income"
+  incomeLevel     String
+  incomeLevelCode String
+  capitalCity     String?
+  latitude        Float?
+  longitude       Float?
+
+  observations Observation[]
+}
+
+/// A World Bank indicator (a measurable series such as GDP per capita).
+model Indicator {
+  /// World Bank indicator code, e.g. "NY.GDP.PCAP.CD"
+  code               String    @id
+  name               String
+  sourceNote         String?
+  sourceOrganization String?
+  /// When observations for this indicator were last pulled from the API
+  lastFetchedAt      DateTime?
+
+  observations Observation[]
+}
+
+/// One value of one indicator for one country in one year.
+model Observation {
+  id            Int    @id @default(autoincrement())
+  countryCode   String
+  indicatorCode String
+  year          Int
+  value         Float
+
+  country   Country   @relation(fields: [countryCode], references: [code], onDelete: Cascade)
+  indicator Indicator @relation(fields: [indicatorCode], references: [code], onDelete: Cascade)
+
+  @@unique([countryCode, indicatorCode, year])
+  @@index([indicatorCode, year])
+}
