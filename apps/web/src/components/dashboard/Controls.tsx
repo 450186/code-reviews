@@ -1,11 +1,23 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useState, type FormEvent } from "react";
+import { gqlFetch } from "@/lib/graphql";
 import { MAX_COUNTRIES, type CountryMeta, type IndicatorMeta, type SortOrder } from "@/lib/dashboard";
 import { shortIndicatorName } from "@/lib/format";
 
+export type SavedView = {
+  id: number;
+  name: string;
+  indicatorCode: string;
+  year: number;
+  countryCodes: string[];
+  sortOrder: SortOrder;
+  region: string | null;
+};
+
 type Props = {
+  savedViews: SavedView[] | null;
   indicators: IndicatorMeta[];
   countries: CountryMeta[];
   regions: string[];
@@ -24,16 +36,57 @@ const selectClass =
 
 /**
  * Every control writes to the URL query string; the server component re-renders
- * with the new parameters. Nothing is stored in component state.
+ * with the new parameters. The save form uses the rendered selection.
  */
-export function Controls({ indicators, countries, regions, selected, yearOptions }: Props) {
+export function Controls({ indicators, countries, regions, selected, yearOptions, savedViews }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const [filterName, setFilterName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [openError, setOpenError] = useState("");
+
+  async function saveFilter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) return;
+
+    setSaving(true);
+    setSaveMessage("");
+    setSaveError("");
+    try {
+      const { saveView } = await gqlFetch<{ saveView: { name: string } }>(
+        `mutation SaveView($input: SaveViewInput!) {
+          saveView(input: $input) { name }
+        }`,
+        {
+          input: {
+            name: filterName,
+            indicatorCode: selected.indicator,
+            year: selected.year,
+            countryCodes: selected.countries,
+            sortOrder: selected.order,
+            region: selected.region,
+          },
+        },
+      );
+      setFilterName("");
+      setSaveMessage(`Saved “${saveView.name}”.`);
+      router.refresh();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Could not save the filter.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const update = useCallback(
     (changes: Record<string, string | null>) => {
       const next = new URLSearchParams(searchParams.toString());
+      next.delete("savedView");
+      setOpenError("");
       for (const [k, v] of Object.entries(changes)) {
         if (v === null || v === "") next.delete(k);
         else next.set(k, v);
@@ -41,6 +94,36 @@ export function Controls({ indicators, countries, regions, selected, yearOptions
       router.replace(`${pathname}?${next.toString()}`, { scroll: false });
     },
     [router, pathname, searchParams],
+  );
+
+  function openSavedView(id: string) {
+    const view = savedViews?.find((entry) => String(entry.id) === id);
+    if (!view) return;
+
+    if (!indicators.some((indicator) => indicator.code === view.indicatorCode) ||
+        view.countryCodes.some((code) => !countries.some((country) => country.code === code)) ||
+        (view.region !== null && !regions.includes(view.region))) {
+      setOpenError(`“${view.name}” uses data that is no longer available.`);
+      return;
+    }
+
+    update({
+      savedView: id,
+      indicator: view.indicatorCode,
+      year: String(view.year),
+      countries: view.countryCodes.join(","),
+      order: view.sortOrder,
+      region: view.region,
+    });
+  }
+
+  const activeView = savedViews?.find((view) =>
+    String(view.id) === searchParams.get("savedView") &&
+    view.indicatorCode === selected.indicator &&
+    view.year === selected.year &&
+    view.countryCodes.join(",") === selected.countries.join(",") &&
+    view.sortOrder === selected.order &&
+    view.region === selected.region
   );
 
   const countryName = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
@@ -138,6 +221,47 @@ export function Controls({ indicators, countries, regions, selected, yearOptions
           <span className="text-xs text-zinc-400">Maximum of {MAX_COUNTRIES} countries</span>
         )}
       </div>
+
+      <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+        <label className="flex max-w-xs flex-col gap-1 text-xs text-zinc-500">
+          Saved filters
+          <select
+            className={selectClass}
+            value={activeView?.id ?? ""}
+            onChange={(event) => openSavedView(event.target.value)}
+            disabled={!savedViews?.length}
+          >
+            <option value="" disabled>
+              {savedViews === null ? "Could not load saved filters" : savedViews.length ? "Choose a saved filter" : "No saved filters yet"}
+            </option>
+            {savedViews?.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}
+          </select>
+        </label>
+        {openError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{openError}</p>}
+      </div>
+
+      <form onSubmit={saveFilter} className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-xs text-zinc-500">
+          Filter name
+          <input
+            className={selectClass}
+            value={filterName}
+            onChange={(event) => setFilterName(event.target.value)}
+            required
+            maxLength={60}
+            disabled={saving}
+          />
+        </label>
+        <button
+          type="submit"
+          className={`${selectClass} font-medium disabled:opacity-50`}
+          disabled={saving || !filterName.trim()}
+        >
+          {saving ? "Saving…" : "Save filter"}
+        </button>
+      </form>
+      {saveMessage && <p role="status" className="text-sm">{saveMessage}</p>}
+      {saveError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{saveError}</p>}
     </div>
   );
 }
