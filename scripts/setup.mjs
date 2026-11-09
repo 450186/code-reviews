@@ -24,7 +24,7 @@ const run = (cmd) => {
 };
 
 run("npm run db:deploy -w apps/api");          // apply committed migrations (non-interactive)
-run("npx prisma generate --schema apps/api/prisma/schema.prisma");
+run("npm exec -w apps/api -- prisma generate");
 run("npm run db:seed -w apps/api");
 run("npm run db:ingest -w apps/api");
 
