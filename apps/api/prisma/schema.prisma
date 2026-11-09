@@ -64,3 +64,18 @@ model Observation {
   @@unique([countryCode, indicatorCode, year])
   @@index([indicatorCode, year])
 }
+
+/// A named snapshot of the dashboard's URL filters.
+model SavedView {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  indicatorCode String
+  year          Int
+  /// Country codes in display order, comma-separated as in the dashboard URL.
+  countryCodes  String
+  /// Ranking order, either ASC or DESC.
+  sortOrder     String
+  /// The region highlighted in the scatter chart, if any.
+  region        String?
+  createdAt     DateTime @default(now())
+}

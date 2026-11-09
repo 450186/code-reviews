@@ -9,7 +9,7 @@ import {
   type RawSearchParams,
 } from "@/lib/dashboard";
 import { formatCompact, formatIndicatorValue, shortIndicatorName } from "@/lib/format";
-import { getGraphqlUrl } from "@/lib/graphql";
+import { getGraphqlUrl, gqlFetch } from "@/lib/graphql";
 import { StatTile } from "@/components/StatTile";
 import { ChartCard, EmptyChart } from "@/components/charts/ChartCard";
 import { DataTable } from "@/components/charts/DataTable";
@@ -17,7 +17,7 @@ import { TimeSeriesChart } from "@/components/charts/TimeSeriesChart";
 import { RegionBarChart } from "@/components/charts/RegionBarChart";
 import { GdpLifeScatter } from "@/components/charts/GdpLifeScatter";
 import { RankingTable } from "@/components/dashboard/RankingTable";
-import { Controls } from "@/components/dashboard/Controls";
+import { Controls, type SavedView } from "@/components/dashboard/Controls";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +29,16 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const params = parseParams(await searchParams);
 
   let meta;
+  let savedViews;
   try {
-    meta = await fetchDashboardMeta();
+    [meta, savedViews] = await Promise.all([
+      fetchDashboardMeta(),
+      gqlFetch<{ savedViews: SavedView[] }>(`
+        query DashboardSavedViews {
+          savedViews { id name indicatorCode year countryCodes sortOrder region }
+        }
+      `).then((data) => data.savedViews).catch(() => null),
+    ]);
   } catch (err) {
     return (
       <main className="mx-auto w-full max-w-6xl px-6 py-16">
@@ -108,6 +116,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             region: params.region,
           }}
           yearOptions={yearOptions}
+          savedViews={savedViews}
         />
       </Suspense>
 

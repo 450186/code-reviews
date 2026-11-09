@@ -1,5 +1,6 @@
 import { createSchema } from "graphql-yoga";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { GraphQLError } from "graphql";
 import { prisma } from "./db.js";
 
 export const typeDefs = /* GraphQL */ `
@@ -108,6 +109,9 @@ export const typeDefs = /* GraphQL */ `
   }
 
   type Query {
+    "Named dashboard configurations, most recently saved first."
+    savedViews: [SavedView!]!
+
     "Simple health-check style query that does not touch the database."
     hello: String!
 
@@ -158,11 +162,48 @@ export const typeDefs = /* GraphQL */ `
     countrySnapshot(indicatorCodes: [String!]!, year: Int!): [CountrySnapshot!]!
   }
 
+  "A named dashboard configuration."
+  type SavedView {
+    id: Int!
+    name: String!
+    indicatorCode: String!
+    year: Int!
+    "Country codes in chart display order."
+    countryCodes: [String!]!
+    sortOrder: SortOrder!
+    "The region highlighted in the scatter chart, if any."
+    region: String
+  }
+
+  "The dashboard filters to save under a unique name."
+  input SaveViewInput {
+    name: String!
+    indicatorCode: String!
+    year: Int!
+    "Country codes in chart display order."
+    countryCodes: [String!]!
+    sortOrder: SortOrder!
+    "The region highlighted in the scatter chart, if any."
+    region: String
+  }
+
   type Mutation {
+    "Save the current dashboard filters as a named view."
+    saveView(input: SaveViewInput!): SavedView!
+
     "Store a new greeting in the database and return it."
     addGreeting(message: String!): Greeting!
   }
 `;
+
+type SaveViewInput = {
+  name: string;
+  indicatorCode: string;
+  year: number;
+  countryCodes: string[];
+  sortOrder: "ASC" | "DESC";
+  region?: string | null;
+};
 
 type YearArgs = { fromYear?: number | null; toYear?: number | null };
 
@@ -190,6 +231,8 @@ const LIFE_EXPECTANCY = "SP.DYN.LE00.IN";
 
 export const resolvers = {
   Query: {
+    savedViews: () => prisma.savedView.findMany({ orderBy: { id: "desc" } }),
+
     hello: () => "Hello, World!",
 
     greetings: async () => prisma.greeting.findMany({ orderBy: { createdAt: "desc" } }),
@@ -327,6 +370,26 @@ export const resolvers = {
   },
 
   Mutation: {
+    saveView: async (_parent: unknown, { input }: { input: SaveViewInput }) => {
+      const { name: rawName, countryCodes, ...filters } = input;
+      const name = rawName.trim();
+      if (!name || name.length > 60) {
+        throw new GraphQLError("Enter a filter name between 1 and 60 characters.");
+      }
+      if (!countryCodes.length || countryCodes.length > 8 || countryCodes.some((code) => !/^[A-Z]{3}$/.test(code))) {
+        throw new GraphQLError("Select between 1 and 8 countries using three-letter country codes.");
+      }
+
+      try {
+        return await prisma.savedView.create({ data: { ...filters, name, countryCodes: countryCodes.join(",") } });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+          throw new GraphQLError("A saved filter with that name already exists.");
+        }
+        throw err;
+      }
+    },
+
     addGreeting: async (_parent: unknown, args: { message: string }) => {
       const message = args.message.trim();
       if (!message) {
@@ -334,6 +397,10 @@ export const resolvers = {
       }
       return prisma.greeting.create({ data: { message } });
     },
+  },
+
+  SavedView: {
+    countryCodes: (parent: { countryCodes: string }) => parent.countryCodes.split(","),
   },
 
   Greeting: {
