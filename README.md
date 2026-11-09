@@ -2,6 +2,8 @@
 
 A small full-stack TypeScript application used for the **Application Support Engineer** technical test.
 
+> **Candidates:** read [BRIEF.md](./BRIEF.md) for the task. This file covers how to run the app.
+
 | Layer    | Tech                                              | Where              |
 |----------|---------------------------------------------------|--------------------|
 | Frontend | [Next.js](https://nextjs.org/) 16 (App Router), React 19, Tailwind 4, [Recharts](https://recharts.org/) | `apps/web` |
