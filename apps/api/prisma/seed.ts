@@ -1,4 +1,12 @@
+import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
+
+// Load apps/api/.env when running locally; ignored when absent (Docker sets the variables directly).
+try {
+  process.loadEnvFile(fileURLToPath(new URL("../.env", import.meta.url)));
+} catch {
+  // rely on the process environment
+}
 
 const prisma = new PrismaClient();
 
